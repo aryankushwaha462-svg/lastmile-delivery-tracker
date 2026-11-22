@@ -257,7 +257,7 @@
                         });
                         if (res.ok) {
                             showToast("Account verified & created! Sign in now.", "success");
-                            setIsRegister(false); setOtpSent(false); setResendCooldown(0); setOtp(""); setPassword("");
+                            setIsRegister(false); setOtpSent(false); setResendCooldown(0); setEmail(""); setOtp(""); setPassword("");
                         } else showToast(await res.text(), "error");
                         return;
                     }
@@ -495,7 +495,7 @@
                                         {loading ? "Processing..." : isRegister ? (otpSent ? "Verify OTP & Create Account" : "Send Verification OTP") : "Sign In"}
                                     </button>
                                 </form>
-                                <button onClick={() => { setIsRegister(!isRegister); setOtpSent(false); setResendCooldown(0); setOtp(""); setPassword(""); }} className="w-full mt-5 text-sm text-sky-400 hover:text-sky-300">
+                                <button onClick={() => { setIsRegister(!isRegister); setOtpSent(false); setResendCooldown(0); setEmail(""); setOtp(""); setPassword(""); }} className="w-full mt-5 text-sm text-sky-400 hover:text-sky-300">
                                     {isRegister ? "Already have an account? Sign In" : "New customer? Create an account"}
                                 </button>
                             </TiltCard>
