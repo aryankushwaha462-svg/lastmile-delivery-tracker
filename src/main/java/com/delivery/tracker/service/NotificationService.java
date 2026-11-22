@@ -65,7 +65,7 @@ public class NotificationService {
                     "textContent", textContent
             );
 
-            HttpEntity> request = new HttpEntity<>(body, headers);
+            var request = new HttpEntity<>(body, headers);
             restTemplate.postForEntity(BREVO_API_URL, request, String.class);
             log.info("Email sent via Brevo HTTPS API to {}", toEmail);
         } catch (Exception e) {
