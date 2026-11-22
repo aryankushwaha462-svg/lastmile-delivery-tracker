@@ -7,9 +7,9 @@ import com.delivery.tracker.repository.UserRepository;
 import com.delivery.tracker.service.OtpService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.mail.MailException;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mail.MailException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -36,7 +36,7 @@ public class AuthController {
     }
 
     @GetMapping("/auth/me")
-    public ResponseEntity<Map<String, String>> getCurrentUser(Authentication auth) {
+    public ResponseEntity> getCurrentUser(Authentication auth) {
         String role = auth.getAuthorities().stream()
                 .findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", ""))
@@ -50,30 +50,42 @@ public class AuthController {
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body("Email is required!");
         }
-        if (userRepository.existsByEmail(email)) {
-            return ResponseEntity.badRequest().body("Email already registered!");
+
+        String normalizedEmail = email.trim().toLowerCase();
+
+        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body("An account with this email already exists. Please sign in.");
         }
+
         try {
-            otpService.generateAndSendOtp(email.trim());
+            otpService.generateAndSendOtp(normalizedEmail);
         } catch (MailException e) {
             logger.warn("Failed to send OTP email", e);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body("Unable to send OTP email. Check SMTP configuration and try again.");
+                    .body("Unable to send OTP email. Check email configuration and try again.");
         }
-        return ResponseEntity.ok("OTP sent to " + email);
+        return ResponseEntity.ok("OTP sent to " + normalizedEmail);
     }
 
     @PostMapping("/auth/register")
     public ResponseEntity<String> registerUser(@RequestBody RegisterDto registerDto) {
-        if (userRepository.existsByEmail(registerDto.getEmail())) {
-            return ResponseEntity.badRequest().body("Email already taken!");
+        if (registerDto.getEmail() == null || registerDto.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body("Email is required!");
         }
-        if (registerDto.getOtp() == null || !otpService.verifyOtp(registerDto.getEmail(), registerDto.getOtp())) {
+
+        String normalizedEmail = registerDto.getEmail().trim().toLowerCase();
+
+        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body("An account with this email already exists. Please sign in.");
+        }
+        if (registerDto.getOtp() == null || !otpService.verifyOtp(normalizedEmail, registerDto.getOtp())) {
             return ResponseEntity.badRequest().body("Invalid or expired OTP!");
         }
 
         User user = new User();
-        user.setEmail(registerDto.getEmail());
+        user.setEmail(normalizedEmail);
         user.setPassword(passwordEncoder.encode(registerDto.getPassword()));
         user.setRole(Role.USER);
 
@@ -84,12 +96,18 @@ public class AuthController {
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/admin/create-agent")
     public ResponseEntity<String> createAgent(@RequestBody RegisterDto registerDto) {
-        if (userRepository.existsByEmail(registerDto.getEmail())) {
-            return ResponseEntity.badRequest().body("Email already taken!");
+        if (registerDto.getEmail() == null || registerDto.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body("Email is required!");
+        }
+
+        String normalizedEmail = registerDto.getEmail().trim().toLowerCase();
+
+        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("Email already taken!");
         }
 
         User agent = new User();
-        agent.setEmail(registerDto.getEmail());
+        agent.setEmail(normalizedEmail);
         agent.setPassword(passwordEncoder.encode(registerDto.getPassword()));
         agent.setRole(Role.AGENT);
 
