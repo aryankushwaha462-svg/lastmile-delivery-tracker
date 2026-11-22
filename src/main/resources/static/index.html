@@ -168,6 +168,14 @@
             const [otpSent, setOtpSent] = useState(false);
             const [resendCooldown, setResendCooldown] = useState(0);
             const [showPassword, setShowPassword] = useState(false);
+
+            // Forgot Password state
+            const [isForgotPassword, setIsForgotPassword] = useState(false);
+            const [resetOtpSent, setResetOtpSent] = useState(false);
+            const [resetOtp, setResetOtp] = useState("");
+            const [newPassword, setNewPassword] = useState("");
+            const [resetCooldown, setResetCooldown] = useState(0);
+
             const [loading, setLoading] = useState(false);
             const [toast, setToast] = useState(null);
 
@@ -201,6 +209,13 @@
                 return () => clearTimeout(timer);
             }, [resendCooldown]);
 
+            // Forgot Password Resend Cooldown Timer
+            useEffect(() => {
+                if (resetCooldown <= 0) return;
+                const timer = setTimeout(() => setResetCooldown(c => c - 1), 1000);
+                return () => clearTimeout(timer);
+            }, [resetCooldown]);
+
             // Live Volumetric Weight Calculation
             const liveVolWeight = (parseFloat(newOrder.length) > 0 && parseFloat(newOrder.breadth) > 0 && parseFloat(newOrder.height) > 0)
                 ? ((parseFloat(newOrder.length) * parseFloat(newOrder.breadth) * parseFloat(newOrder.height)) / 5000).toFixed(2)
@@ -213,6 +228,63 @@
             const showToast = (text, type = "info") => {
                 setToast({ text, type });
                 setTimeout(() => setToast(null), 4000);
+            };
+
+            const resetForgotState = () => {
+                setIsForgotPassword(false);
+                setResetOtpSent(false);
+                setResetCooldown(0);
+                setResetOtp("");
+                setNewPassword("");
+            };
+
+            const handleSendResetOtp = async () => {
+                if (!email.trim()) return showToast("Enter your email first.", "error");
+                if (resetCooldown > 0 || loading) return;
+                setLoading(true);
+                try {
+                    const res = await fetch("/api/auth/forgot-password", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ email })
+                    });
+                    const msg = await res.text();
+                    if (res.ok) {
+                        setResetOtpSent(true);
+                        setResetCooldown(30);
+                        showToast(msg, "success");
+                    } else {
+                        showToast(msg, "error");
+                    }
+                } catch (err) {
+                    showToast("Network error. Please try again.", "error");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleResetPassword = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    const res = await fetch("/api/auth/reset-password", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ email, otp: resetOtp, newPassword })
+                    });
+                    const msg = await res.text();
+                    if (res.ok) {
+                        showToast(msg, "success");
+                        resetForgotState();
+                        setPassword("");
+                    } else {
+                        showToast(msg, "error");
+                    }
+                } catch (err) {
+                    showToast("Network error. Please try again.", "error");
+                } finally {
+                    setLoading(false);
+                }
             };
 
             const handleResendOtp = async () => {
@@ -437,6 +509,7 @@
             const logout = () => {
                 setAuthHeader(null); setUser(null); setOrders([]); setTrackingHistory([]); setQuote(null);
                 setNewOrder(emptyOrder); setOrderStep(1); setEmail(""); setPassword(""); setOtp(""); setOtpSent(false); setResendCooldown(0);
+                resetForgotState();
             };
 
             return (
@@ -455,49 +528,152 @@
                             <TiltCard className="p-8 rounded-2xl shadow-2xl w-full max-w-md animate-float-in">
                                 <div className="text-center mb-7">
                                     <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-400 via-blue-400 to-indigo-400">LastMileTracker</h1>
-                                    <p className="text-slate-400 text-sm mt-1.5">{isRegister ? "Create your Logistics Account" : "Sign in to your Logistics Portal"}</p>
+                                    <p className="text-slate-400 text-sm mt-1.5">
+                                        {isForgotPassword ? "Reset your account password via OTP" : isRegister ? "Create your Logistics Account" : "Sign in to your Logistics Portal"}
+                                    </p>
                                 </div>
-                                <form onSubmit={handleAuth} autoComplete="off" className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Email Address</label>
-                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={isRegister && otpSent} placeholder="Enter your email"
-                                            className="w-full bg-slate-900/70 border border-slate-700/80 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-400 transition disabled:opacity-60" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Password</label>
-                                        <div className="relative">
-                                            <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password"
-                                                className="w-full bg-slate-900/70 border border-slate-700/80 rounded-xl px-4 py-3 pr-12 text-white focus:outline-none focus:border-sky-400 transition" required />
-                                            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-sky-400 font-semibold">
-                                                {showPassword ? "HIDE" : "SHOW"}
+
+                                {isForgotPassword ? (
+                                    <form onSubmit={handleResetPassword} autoComplete="off" className="space-y-4 animate-float-in">
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Email Address</label>
+                                            <input
+                                                type="email"
+                                                value={email}
+                                                onChange={e => setEmail(e.target.value)}
+                                                disabled={resetOtpSent}
+                                                placeholder="Enter your registered email"
+                                                className="w-full bg-slate-900/70 border border-slate-700/80 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-400 transition disabled:opacity-60"
+                                                required
+                                            />
+                                        </div>
+
+                                        {!resetOtpSent ? (
+                                            <button
+                                                type="button"
+                                                onClick={handleSendResetOtp}
+                                                disabled={loading || resetCooldown > 0}
+                                                className="w-full mt-2 bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white font-bold py-3 rounded-xl shadow-lg transition disabled:opacity-60"
+                                            >
+                                                {loading ? "Processing..." : resetCooldown > 0 ? `Send Reset OTP (${resetCooldown}s)` : "Send Reset OTP"}
                                             </button>
-                                        </div>
-                                    </div>
-                                    {isRegister && otpSent && (
-                                        <div className="animate-float-in">
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-sky-400 mb-1.5">6-Digit Verification OTP</label>
-                                            <input type="text" maxLength="6" value={otp} onChange={e => setOtp(e.target.value)} placeholder="••••••"
-                                                className="w-full bg-slate-900/70 border border-sky-500/60 rounded-xl px-4 py-3 text-white text-center tracking-[0.4em] font-bold" required />
-                                            <div className="flex justify-between items-center mt-2 text-xs">
-                                                <span className="text-slate-400">Didn't receive the OTP?</span>
+                                        ) : (
+                                            <>
+                                                <div className="animate-float-in">
+                                                    <label className="block text-xs font-semibold uppercase tracking-wider text-sky-400 mb-1.5">6-Digit Reset OTP</label>
+                                                    <input
+                                                        type="text"
+                                                        maxLength="6"
+                                                        value={resetOtp}
+                                                        onChange={e => setResetOtp(e.target.value)}
+                                                        placeholder="••••••"
+                                                        className="w-full bg-slate-900/70 border border-sky-500/60 rounded-xl px-4 py-3 text-white text-center tracking-[0.4em] font-bold"
+                                                        required
+                                                    />
+                                                    <div className="flex justify-between items-center mt-2 text-xs">
+                                                        <span className="text-slate-400">Didn't receive the OTP?</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleSendResetOtp}
+                                                            disabled={resetCooldown > 0 || loading}
+                                                            className="text-sky-400 hover:text-sky-300 font-semibold disabled:text-slate-500 disabled:cursor-not-allowed transition"
+                                                        >
+                                                            {resetCooldown > 0 ? `Resend in ${resetCooldown}s` : "Resend OTP"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">New Password</label>
+                                                    <div className="relative">
+                                                        <input
+                                                            type={showPassword ? "text" : "password"}
+                                                            value={newPassword}
+                                                            onChange={e => setNewPassword(e.target.value)}
+                                                            placeholder="Enter new password"
+                                                            className="w-full bg-slate-900/70 border border-slate-700/80 rounded-xl px-4 py-3 pr-12 text-white focus:outline-none focus:border-sky-400 transition"
+                                                            required
+                                                        />
+                                                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-sky-400 font-semibold">
+                                                            {showPassword ? "HIDE" : "SHOW"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+
                                                 <button
-                                                    type="button"
-                                                    onClick={handleResendOtp}
-                                                    disabled={resendCooldown > 0 || loading}
-                                                    className="text-sky-400 hover:text-sky-300 font-semibold disabled:text-slate-500 disabled:cursor-not-allowed transition"
+                                                    type="submit"
+                                                    disabled={loading}
+                                                    className="w-full mt-2 bg-gradient-to-r from-emerald-600 to-sky-500 hover:from-emerald-500 hover:to-sky-400 text-white font-bold py-3 rounded-xl shadow-lg transition disabled:opacity-60"
                                                 >
-                                                    {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend OTP"}
+                                                    {loading ? "Resetting..." : "Reset Password"}
                                                 </button>
+                                            </>
+                                        )}
+
+                                        <button
+                                            type="button"
+                                            onClick={() => { resetForgotState(); setPassword(""); }}
+                                            className="w-full mt-3 text-sm text-sky-400 hover:text-sky-300"
+                                        >
+                                            ← Back to Sign In
+                                        </button>
+                                    </form>
+                                ) : (
+                                    <>
+                                        <form onSubmit={handleAuth} autoComplete="off" className="space-y-4">
+                                            <div>
+                                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Email Address</label>
+                                                <input type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={isRegister && otpSent} placeholder="Enter your email"
+                                                    className="w-full bg-slate-900/70 border border-slate-700/80 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-400 transition disabled:opacity-60" required />
                                             </div>
-                                        </div>
-                                    )}
-                                    <button type="submit" disabled={loading} className="w-full mt-2 bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white font-bold py-3 rounded-xl shadow-lg transition disabled:opacity-60">
-                                        {loading ? "Processing..." : isRegister ? (otpSent ? "Verify OTP & Create Account" : "Send Verification OTP") : "Sign In"}
-                                    </button>
-                                </form>
-                                <button onClick={() => { setIsRegister(!isRegister); setOtpSent(false); setResendCooldown(0); setEmail(""); setOtp(""); setPassword(""); }} className="w-full mt-5 text-sm text-sky-400 hover:text-sky-300">
-                                    {isRegister ? "Already have an account? Sign In" : "New customer? Create an account"}
-                                </button>
+                                            <div>
+                                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Password</label>
+                                                <div className="relative">
+                                                    <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password"
+                                                        className="w-full bg-slate-900/70 border border-slate-700/80 rounded-xl px-4 py-3 pr-12 text-white focus:outline-none focus:border-sky-400 transition" required />
+                                                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-sky-400 font-semibold">
+                                                        {showPassword ? "HIDE" : "SHOW"}
+                                                    </button>
+                                                </div>
+                                                {!isRegister && (
+                                                    <div className="flex justify-end mt-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { resetForgotState(); }}
+                                                            className="text-xs text-sky-400 hover:text-sky-300 font-semibold"
+                                                        >
+                                                            Forgot password?
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {isRegister && otpSent && (
+                                                <div className="animate-float-in">
+                                                    <label className="block text-xs font-semibold uppercase tracking-wider text-sky-400 mb-1.5">6-Digit Verification OTP</label>
+                                                    <input type="text" maxLength="6" value={otp} onChange={e => setOtp(e.target.value)} placeholder="••••••"
+                                                        className="w-full bg-slate-900/70 border border-sky-500/60 rounded-xl px-4 py-3 text-white text-center tracking-[0.4em] font-bold" required />
+                                                    <div className="flex justify-between items-center mt-2 text-xs">
+                                                        <span className="text-slate-400">Didn't receive the OTP?</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleResendOtp}
+                                                            disabled={resendCooldown > 0 || loading}
+                                                            className="text-sky-400 hover:text-sky-300 font-semibold disabled:text-slate-500 disabled:cursor-not-allowed transition"
+                                                        >
+                                                            {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend OTP"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <button type="submit" disabled={loading} className="w-full mt-2 bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white font-bold py-3 rounded-xl shadow-lg transition disabled:opacity-60">
+                                                {loading ? "Processing..." : isRegister ? (otpSent ? "Verify OTP & Create Account" : "Send Verification OTP") : "Sign In"}
+                                            </button>
+                                        </form>
+                                        <button onClick={() => { setIsRegister(!isRegister); setOtpSent(false); setResendCooldown(0); setEmail(""); setOtp(""); setPassword(""); }} className="w-full mt-5 text-sm text-sky-400 hover:text-sky-300">
+                                            {isRegister ? "Already have an account? Sign In" : "New customer? Create an account"}
+                                        </button>
+                                    </>
+                                )}
                             </TiltCard>
                         </div>
                     ) : (

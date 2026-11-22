@@ -1,4 +1,4 @@
-package com.delivery.tracker.controller;
+﻿package com.delivery.tracker.controller;
 
 import com.delivery.tracker.dto.RegisterDto;
 import com.delivery.tracker.model.Role;
@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.mail.MailException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -36,7 +35,7 @@ public class AuthController {
     }
 
     @GetMapping("/auth/me")
-    public ResponseEntity<Map<String, String>> getCurrentUser(Authentication auth) {
+    public ResponseEntity> getCurrentUser(Authentication auth) {
         String role = auth.getAuthorities().stream()
                 .findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", ""))
@@ -60,7 +59,7 @@ public class AuthController {
 
         try {
             otpService.generateAndSendOtp(normalizedEmail);
-        } catch (MailException e) {
+        } catch (Exception e) {
             logger.warn("Failed to send OTP email", e);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body("Unable to send OTP email. Check email configuration and try again.");
@@ -91,6 +90,56 @@ public class AuthController {
 
         userRepository.save(user);
         return ResponseEntity.ok("User registered successfully");
+    }
+
+    @PostMapping("/auth/forgot-password")
+    public ResponseEntity<String> forgotPassword(@RequestBody Map<String, String> payload) {
+        String email = payload.get("email");
+        if (email == null || email.isBlank()) {
+            return ResponseEntity.badRequest().body("Email is required!");
+        }
+
+        String normalizedEmail = email.trim().toLowerCase();
+
+        if (!userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body("No account found with this email.");
+        }
+
+        try {
+            otpService.generateAndSendOtp(normalizedEmail);
+        } catch (Exception e) {
+            logger.warn("Failed to send password reset OTP", e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body("Unable to send reset OTP email. Please try again.");
+        }
+        return ResponseEntity.ok("Password reset OTP sent to " + normalizedEmail);
+    }
+
+    @PostMapping("/auth/reset-password")
+    public ResponseEntity<String> resetPassword(@RequestBody Map<String, String> payload) {
+        String email = payload.get("email");
+        String otp = payload.get("otp");
+        String newPassword = payload.get("newPassword");
+
+        if (email == null || email.isBlank() || otp == null || otp.isBlank() || newPassword == null || newPassword.isBlank()) {
+            return ResponseEntity.badRequest().body("Email, OTP, and new password are required!");
+        }
+
+        String normalizedEmail = email.trim().toLowerCase();
+
+        if (!otpService.verifyOtp(normalizedEmail, otp.trim())) {
+            return ResponseEntity.badRequest().body("Invalid or expired OTP!");
+        }
+
+        return userRepository.findByEmailIgnoreCase(normalizedEmail)
+                .map(user -> {
+                    user.setPassword(passwordEncoder.encode(newPassword));
+                    userRepository.save(user);
+                    return ResponseEntity.ok("Password updated successfully. You can now sign in.");
+                })
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body("No account found with this email."));
     }
 
     @PreAuthorize("hasRole('ADMIN')")
