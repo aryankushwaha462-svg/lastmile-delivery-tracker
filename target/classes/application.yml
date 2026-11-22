@@ -1,5 +1,5 @@
 server:
-  port: 6969
+  port: ${PORT:6969}
 
 spring:
   datasource:
