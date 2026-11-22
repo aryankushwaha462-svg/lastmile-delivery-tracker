@@ -21,7 +21,12 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin())) // Required for H2 Console
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/", "/index.html", "/api/auth/register", "/api/auth/send-otp", "/h2-console/**", "/error").permitAll()
+                .requestMatchers(
+                    "/", "/index.html",
+                    "/api/auth/register", "/api/auth/send-otp",
+                    "/api/auth/forgot-password", "/api/auth/reset-password",
+                    "/h2-console", "/h2-console/**", "/error"
+                ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/agent/**").hasAnyRole("AGENT", "ADMIN")
                 .anyRequest().authenticated()
