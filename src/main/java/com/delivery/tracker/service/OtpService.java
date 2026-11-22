@@ -1,9 +1,6 @@
 package com.delivery.tracker.service;
 
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Value;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
@@ -13,39 +10,33 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class OtpService {
 
-    private final JavaMailSender mailSender;
-    private final String senderEmail;
+    private final NotificationService notificationService;
     private final SecureRandom random = new SecureRandom();
     private final Map<String, OtpEntry> otpStore = new ConcurrentHashMap<>();
 
-    public OtpService(JavaMailSender mailSender,
-                      @Value("${spring.mail.username:}") String senderEmail) {
-        this.mailSender = mailSender;
-        this.senderEmail = senderEmail;
+    public OtpService(NotificationService notificationService) {
+        this.notificationService = notificationService;
     }
 
     public void generateAndSendOtp(String email) {
+        String normalizedEmail = email.trim().toLowerCase();
         String otp = String.format("%06d", random.nextInt(1_000_000));
-        SimpleMailMessage message = new SimpleMailMessage();
-        if (!senderEmail.isBlank()) {
-            message.setFrom(senderEmail);
-        }
-        message.setTo(email);
-        message.setSubject("LastMileTracker - Your Verification OTP");
-        message.setText("Your 6-digit verification code is: " + otp + "\n\nThis code expires in 5 minutes.");
-        mailSender.send(message);
+        otpStore.put(normalizedEmail, new OtpEntry(otp, LocalDateTime.now().plusMinutes(5)));
 
-        otpStore.put(email.trim().toLowerCase(), new OtpEntry(otp, LocalDateTime.now().plusMinutes(5)));
+        // Dispatches asynchronously via NotificationService so the UI responds immediately
+        notificationService.sendOtpEmail(normalizedEmail, otp);
     }
 
     public boolean verifyOtp(String email, String inputOtp) {
-        OtpEntry entry = otpStore.get(email.toLowerCase());
+        if (email == null || inputOtp == null) return false;
+        String normalizedEmail = email.trim().toLowerCase();
+        OtpEntry entry = otpStore.get(normalizedEmail);
         if (entry == null || LocalDateTime.now().isAfter(entry.expiresAt)) {
-            otpStore.remove(email.toLowerCase());
+            otpStore.remove(normalizedEmail);
             return false;
         }
-        if (entry.code.equals(inputOtp)) {
-            otpStore.remove(email.toLowerCase()); // Single-use OTP
+        if (entry.code.equals(inputOtp.trim())) {
+            otpStore.remove(normalizedEmail); // Single-use OTP
             return true;
         }
         return false;
