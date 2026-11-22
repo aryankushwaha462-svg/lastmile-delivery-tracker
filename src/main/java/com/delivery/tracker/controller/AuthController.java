@@ -1,4 +1,4 @@
-﻿package com.delivery.tracker.controller;
+package com.delivery.tracker.controller;
 
 import com.delivery.tracker.dto.RegisterDto;
 import com.delivery.tracker.model.Role;
@@ -36,7 +36,7 @@ public class AuthController {
     }
 
     @GetMapping("/auth/me")
-    public ResponseEntity> getCurrentUser(Authentication auth) {
+    public ResponseEntity<Map<String, String>> getCurrentUser(Authentication auth) {
         String role = auth.getAuthorities().stream()
                 .findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", ""))
