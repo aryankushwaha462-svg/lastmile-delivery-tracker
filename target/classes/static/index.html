@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LastMileTracker — Logistics Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { background-color: #070b14; color: #e2e8f0; overflow-x: hidden; cursor: none; }
+        a, button, input, select { cursor: none; }
+        .glass { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(18px); border: 1px solid rgba(148, 163, 184, 0.16); }
+        .tilt-card { transform-style: preserve-3d; transition: transform 0.15s ease-out; position: relative; overflow: hidden; }
+        .spotlight { pointer-events: none; position: absolute; inset: 0; opacity: 0; transition: opacity 0.3s ease; }
+        .tilt-card:hover .spotlight { opacity: 1; }
+        #bg-canvas { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+        .cursor-dot { position: fixed; width: 8px; height: 8px; background: #38bdf8; border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%, -50%); transition: transform 0.1s ease; }
+        .cursor-dot.clicking { transform: translate(-50%, -50%) scale(1.8); background: #818cf8; }
+        .cursor-ring { position: fixed; width: 36px; height: 36px; border: 2px solid rgba(56, 189, 248, 0.65); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%, -50%); transition: width 0.2s ease, height 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
+        .cursor-ring.scrolling { width: 56px; height: 26px; border-color: #818cf8; box-shadow: 0 0 22px rgba(129, 140, 248, 0.65); }
+        .cursor-ring.hovering { width: 50px; height: 50px; border-color: #34d399; box-shadow: 0 0 20px rgba(52, 211, 153, 0.5); }
+        .cursor-ring.clicking { width: 26px; height: 26px; border-color: #f472b6; box-shadow: 0 0 25px rgba(244, 114, 182, 0.7); }
+        @keyframes floatIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-float-in { animation: floatIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    </style>
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+    <div id="root" class="relative z-10 min-h-screen"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const ALL_STATUSES = ["CREATED", "ASSIGNED", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "FAILED", "RESCHEDULED"];
+        const AGENT_STATUSES = ["PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "FAILED"];
+
+        function InteractiveBackground() {
+            useEffect(() => {
+                const canvas = document.getElementById("bg-canvas");
+                const ctx = canvas.getContext("2d");
+                let animId, mouse = { x: -999, y: -999 }, scrollOffset = 0;
+                const ripples = [];
+
+                const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+                resize();
+                window.addEventListener("resize", resize);
+                const onMouseMove = (e) => { mouse = { x: e.clientX, y: e.clientY }; };
+                const onScroll = () => { scrollOffset = window.scrollY; };
+                const onClick = (e) => { ripples.push({ x: e.clientX, y: e.clientY, r: 6, alpha: 0.6 }); };
+
+                window.addEventListener("mousemove", onMouseMove);
+                window.addEventListener("scroll", onScroll);
+                window.addEventListener("click", onClick);
+
+                const particles = Array.from({ length: 70 }, () => ({
+                    x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+                    vx: (Math.random() - 0.5) * 0.6, vy: (Math.random() - 0.5) * 0.6, r: Math.random() * 2 + 1.2
+                }));
+
+                const draw = () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    for (let i = ripples.length - 1; i >= 0; i--) {
+                        const rp = ripples[i]; rp.r += 4.5; rp.alpha -= 0.018;
+                        if (rp.alpha <= 0) { ripples.splice(i, 1); continue; }
+                        ctx.beginPath(); ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2);
+                        ctx.strokeStyle = `rgba(56, 189, 248, ${rp.alpha})`; ctx.lineWidth = 1.5; ctx.stroke();
+                    }
+                    particles.forEach((p, i) => {
+                        p.x += p.vx; p.y += p.vy;
+                        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                        const renderY = (p.y - scrollOffset * 0.18 + canvas.height * 10) % canvas.height;
+                        const dxm = p.x - mouse.x, dym = renderY - mouse.y, distM = Math.hypot(dxm, dym);
+                        if (distM < 150 && distM > 0) {
+                            ctx.beginPath(); ctx.moveTo(p.x, renderY); ctx.lineTo(mouse.x, mouse.y);
+                            ctx.strokeStyle = `rgba(56, 189, 248, ${0.3 * (1 - distM / 150)})`; ctx.stroke();
+                        }
+                        ctx.beginPath(); ctx.arc(p.x, renderY, p.r, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgba(56, 189, 248, 0.7)"; ctx.fill();
+                        for (let j = i + 1; j < particles.length; j++) {
+                            const q = particles[j], qY = (q.y - scrollOffset * 0.18 + canvas.height * 10) % canvas.height;
+                            const d = Math.hypot(p.x - q.x, renderY - qY);
+                            if (d < 130) {
+                                ctx.beginPath(); ctx.moveTo(p.x, renderY); ctx.lineTo(q.x, qY);
+                                ctx.strokeStyle = `rgba(99, 102, 241, ${0.2 * (1 - d / 130)})`; ctx.stroke();
+                            }
+                        }
+                    });
+                    animId = requestAnimationFrame(draw);
+                };
+                draw();
+                return () => {
+                    cancelAnimationFrame(animId);
+                    window.removeEventListener("resize", resize);
+                    window.removeEventListener("mousemove", onMouseMove);
+                    window.removeEventListener("scroll", onScroll);
+                    window.removeEventListener("click", onClick);
+                };
+            }, []);
+            return null;
+        }
+
+        function CustomCursor() {
+            const dotRef = useRef(null), ringRef = useRef(null);
+            const [scrolling, setScrolling] = useState(false);
+            const [hovering, setHovering] = useState(false);
+            const [clicking, setClicking] = useState(false);
+
+            useEffect(() => {
+                let mouseX = -100, mouseY = -100, ringX = -100, ringY = -100, scrollTimer, raf;
+                const onMove = (e) => {
+                    mouseX = e.clientX; mouseY = e.clientY;
+                    if (dotRef.current) { dotRef.current.style.left = `${mouseX}px`; dotRef.current.style.top = `${mouseY}px`; }
+                    setHovering(!!e.target.closest("button, a, input, select"));
+                };
+                const onScroll = () => { setScrolling(true); clearTimeout(scrollTimer); scrollTimer = setTimeout(() => setScrolling(false), 180); };
+                const onDown = () => setClicking(true), onUp = () => setClicking(false);
+                const animate = () => {
+                    ringX += (mouseX - ringX) * 0.18; ringY += (mouseY - ringY) * 0.18;
+                    if (ringRef.current) { ringRef.current.style.left = `${ringX}px`; ringRef.current.style.top = `${ringY}px`; }
+                    raf = requestAnimationFrame(animate);
+                };
+                window.addEventListener("mousemove", onMove); window.addEventListener("scroll", onScroll);
+                window.addEventListener("mousedown", onDown); window.addEventListener("mouseup", onUp);
+                animate();
+                return () => {
+                    cancelAnimationFrame(raf);
+                    window.removeEventListener("mousemove", onMove); window.removeEventListener("scroll", onScroll);
+                    window.removeEventListener("mousedown", onDown); window.removeEventListener("mouseup", onUp);
+                };
+            }, []);
+            return (<><div ref={dotRef} className={`cursor-dot ${clicking ? "clicking" : ""}`} /><div ref={ringRef} className={`cursor-ring ${scrolling ? "scrolling" : ""} ${hovering ? "hovering" : ""} ${clicking ? "clicking" : ""}`} /></>);
+        }
+
+        function TiltCard({ children, className = "" }) {
+            const cardRef = useRef(null);
+            const [spot, setSpot] = useState({ x: 50, y: 50 });
+            const handleMove = (e) => {
+                const rect = cardRef.current.getBoundingClientRect();
+                const x = e.clientX - rect.left, y = e.clientY - rect.top;
+                cardRef.current.style.transform = `perspective(1000px) rotateX(${((y / rect.height) - 0.5) * -4}deg) rotateY(${((x / rect.width) - 0.5) * 4}deg)`;
+                setSpot({ x, y });
+            };
+            const handleLeave = () => { cardRef.current.style.transform = "perspective(1000px) rotateX(0deg) rotateY(0deg)"; };
+            return (
+                <div ref={cardRef} onMouseMove={handleMove} onMouseLeave={handleLeave} className={`glass tilt-card ${className}`}>
+                    <div className="spotlight" style={{ background: `radial-gradient(320px circle at ${spot.x}px ${spot.y}px, rgba(56, 189, 248, 0.12), transparent 70%)` }} />
+                    <div className="relative z-10">{children}</div>
+                </div>
+            );
+        }
+
+        function App() {
+            const emptyOrder = {
+                pickupAddress: "", pickupPincode: "",
+                dropAddress: "", dropPincode: "",
+                length: "", breadth: "", height: "", actualWeight: "",
+                orderType: "B2C", paymentType: "PREPAID", customerEmail: ""
+            };
+
+            const [authHeader, setAuthHeader] = useState(null);
+            const [user, setUser] = useState(null);
+            const [isRegister, setIsRegister] = useState(false);
+            const [email, setEmail] = useState("");
+            const [password, setPassword] = useState("");
+            const [otp, setOtp] = useState("");
+            const [otpSent, setOtpSent] = useState(false);
+            const [showPassword, setShowPassword] = useState(false);
+            const [loading, setLoading] = useState(false);
+            const [toast, setToast] = useState(null);
+
+            // Orders & Tracking
+            const [orders, setOrders] = useState([]);
+            const [trackId, setTrackId] = useState("");
+            const [trackingHistory, setTrackingHistory] = useState([]);
+            const [rescheduleDates, setRescheduleDates] = useState({});
+            const [statusRemarks, setStatusRemarks] = useState({});
+
+            // Interactive 3-Step Order Wizard
+            const [orderStep, setOrderStep] = useState(1);
+            const [quote, setQuote] = useState(null);
+            const [newOrder, setNewOrder] = useState(emptyOrder);
+
+            // Admin Data & Filters
+            const [zones, setZones] = useState([]);
+            const [areas, setAreas] = useState([]);
+            const [agents, setAgents] = useState([]);
+            const [rateCards, setRateCards] = useState([]);
+            const [filters, setFilters] = useState({ status: "", zoneId: "", agentId: "" });
+            const [newZoneName, setNewZoneName] = useState("");
+            const [newArea, setNewArea] = useState({ pincode: "", areaName: "", zoneId: "" });
+            const [newRate, setNewRate] = useState({ originZoneId: "", destinationZoneId: "", orderType: "B2C", baseRatePerKg: "", codSurcharge: "" });
+            const [adminTab, setAdminTab] = useState("orders");
+
+            // Live Volumetric Weight Calculation
+            const liveVolWeight = (parseFloat(newOrder.length) > 0 && parseFloat(newOrder.breadth) > 0 && parseFloat(newOrder.height) > 0)
+                ? ((parseFloat(newOrder.length) * parseFloat(newOrder.breadth) * parseFloat(newOrder.height)) / 5000).toFixed(2)
+                : null;
+            const liveActualWeight = parseFloat(newOrder.actualWeight) > 0 ? parseFloat(newOrder.actualWeight).toFixed(2) : null;
+            const liveBilledWeight = (liveVolWeight || liveActualWeight)
+                ? Math.max(parseFloat(liveVolWeight || 0), parseFloat(liveActualWeight || 0)).toFixed(2)
+                : null;
+
+            const showToast = (text, type = "info") => {
+                setToast({ text, type });
+                setTimeout(() => setToast(null), 4000);
+            };
+
+            const handleAuth = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    if (isRegister) {
+                        if (!otpSent) {
+                            const res = await fetch("/api/auth/send-otp", {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ email })
+                            });
+                            if (res.ok) { setOtpSent(true); showToast(await res.text(), "success"); }
+                            else showToast(await res.text(), "error");
+                            return;
+                        }
+                        const res = await fetch("/api/auth/register", {
+                            method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ email, password, otp })
+                        });
+                        if (res.ok) {
+                            showToast("Account verified & created! Sign in now.", "success");
+                            setIsRegister(false); setOtpSent(false); setOtp(""); setPassword("");
+                        } else showToast(await res.text(), "error");
+                        return;
+                    }
+
+                    const header = "Basic " + btoa(`${email}:${password}`);
+                    const res = await fetch("/api/auth/me", { headers: { Authorization: header } });
+                    if (res.ok) {
+                        const data = await res.json();
+                        setAuthHeader(header); setUser(data);
+                        showToast(`Welcome, ${data.email}`, "success");
+                        loadOrders(header, data.role, filters);
+                        if (data.role === "ADMIN") loadAdminData(header);
+                    } else showToast("Invalid email or password.", "error");
+                } finally { setLoading(false); }
+            };
+
+            const loadOrders = async (header, role, activeFilters = filters) => {
+                let url = role === "AGENT" ? "/api/agent/orders" : "/api/orders";
+                if (role === "ADMIN") {
+                    const params = new URLSearchParams();
+                    if (activeFilters.status) params.append("status", activeFilters.status);
+                    if (activeFilters.zoneId) params.append("zoneId", activeFilters.zoneId);
+                    if (activeFilters.agentId) params.append("agentId", activeFilters.agentId);
+                    if (params.toString()) url += `?${params.toString()}`;
+                }
+                const res = await fetch(url, { headers: { Authorization: header } });
+                if (res.ok) setOrders(await res.json());
+            };
+
+            const loadAdminData = async (header) => {
+                const [zRes, aRes, agRes, rRes] = await Promise.all([
+                    fetch("/api/admin/zones", { headers: { Authorization: header } }),
+                    fetch("/api/admin/areas", { headers: { Authorization: header } }),
+                    fetch("/api/admin/agents", { headers: { Authorization: header } }),
+                    fetch("/api/rate-cards", { headers: { Authorization: header } })
+                ]);
+                if (zRes.ok) setZones(await zRes.json());
+                if (aRes.ok) setAreas(await aRes.json());
+                if (agRes.ok) setAgents(await agRes.json());
+                if (rRes.ok) setRateCards(await rRes.json());
+            };
+
+            const buildOrderPayload = () => ({
+                ...newOrder,
+                length: parseFloat(newOrder.length),
+                breadth: parseFloat(newOrder.breadth),
+                height: parseFloat(newOrder.height),
+                actualWeight: parseFloat(newOrder.actualWeight),
+                customerEmail: user.role === "ADMIN" && newOrder.customerEmail ? newOrder.customerEmail : user.email
+            });
+
+            const previewCharge = async () => {
+                const res = await fetch("/api/orders/calculate-charge", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: authHeader },
+                    body: JSON.stringify(buildOrderPayload())
+                });
+                if (res.ok) {
+                    setQuote(await res.json());
+                    showToast("Live quote ready! Confirm to place your order.", "success");
+                } else showToast("Failed to calculate charge. Check dimensions & pincodes.", "error");
+            };
+
+            const confirmOrder = async () => {
+                const res = await fetch("/api/orders", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: authHeader },
+                    body: JSON.stringify(buildOrderPayload())
+                });
+                if (res.ok) {
+                    const created = await res.json();
+                    setQuote(null);
+                    setNewOrder(emptyOrder);
+                    setOrderStep(1);
+                    showToast(`Order #${created.id} confirmed! Total: ₹${created.totalCharge}`, "success");
+                    loadOrders(authHeader, user.role);
+                    if (user.role === "ADMIN") loadAdminData(authHeader);
+                } else showToast("Order creation failed.", "error");
+            };
+
+            const updateStatus = async (orderId, status) => {
+                const remark = encodeURIComponent(statusRemarks[orderId] || `Updated to ${status}`);
+                const res = await fetch(`/api/orders/${orderId}/status?status=${status}&remarks=${remark}`, {
+                    method: "PATCH", headers: { Authorization: authHeader }
+                });
+                if (res.ok) {
+                    showToast(`Order #${orderId} → ${status}`, "success");
+                    loadOrders(authHeader, user.role);
+                    if (user.role === "ADMIN") loadAdminData(authHeader);
+                }
+            };
+
+            const assignAgent = async (orderId, agentId) => {
+                if (!agentId) return;
+                const res = await fetch(`/api/orders/${orderId}/assign-agent?agentId=${agentId}`, {
+                    method: "PATCH", headers: { Authorization: authHeader }
+                });
+                if (res.ok) {
+                    showToast(`Agent assigned to Order #${orderId}`, "success");
+                    loadOrders(authHeader, user.role);
+                    loadAdminData(authHeader);
+                }
+            };
+
+            const autoAssign = async (orderId) => {
+                const res = await fetch(`/api/orders/${orderId}/auto-assign`, {
+                    method: "POST", headers: { Authorization: authHeader }
+                });
+                if (res.ok) {
+                    showToast(`Auto-assigned nearest agent to Order #${orderId}`, "success");
+                    loadOrders(authHeader, user.role);
+                    loadAdminData(authHeader);
+                } else showToast("No available agent in pickup zone right now.", "error");
+            };
+
+            const rescheduleOrder = async (orderId) => {
+                const dt = rescheduleDates[orderId];
+                if (!dt) return showToast("Select a new delivery date & time first.", "error");
+                const isoDate = dt.length === 16 ? `${dt}:00` : dt;
+                const res = await fetch(`/api/orders/${orderId}/reschedule?newDate=${encodeURIComponent(isoDate)}`, {
+                    method: "POST", headers: { Authorization: authHeader }
+                });
+                if (res.ok) {
+                    showToast(`Order #${orderId} rescheduled & agent reassigned!`, "success");
+                    loadOrders(authHeader, user.role);
+                } else showToast("Could not reschedule order.", "error");
+            };
+
+            const trackOrder = async (idToTrack = trackId) => {
+                if (!idToTrack) return;
+                setTrackId(idToTrack);
+                const res = await fetch(`/api/orders/${idToTrack}/tracking`, { headers: { Authorization: authHeader } });
+                if (res.ok) {
+                    const data = await res.json();
+                    setTrackingHistory(data);
+                    if (data.length === 0) showToast("No tracking history found.", "error");
+                } else if (res.status === 403) {
+                    setTrackingHistory([]);
+                    showToast("Access denied: You can only track your own orders.", "error");
+                } else {
+                    setTrackingHistory([]);
+                    showToast("Order not found.", "error");
+                }
+            };
+
+            const createZone = async (e) => {
+                e.preventDefault();
+                const res = await fetch("/api/admin/zones", {
+                    method: "POST", headers: { "Content-Type": "application/json", Authorization: authHeader },
+                    body: JSON.stringify({ name: newZoneName })
+                });
+                if (res.ok) { setNewZoneName(""); showToast("Zone created!", "success"); loadAdminData(authHeader); }
+            };
+
+            const createArea = async (e) => {
+                e.preventDefault();
+                const res = await fetch("/api/admin/areas", {
+                    method: "POST", headers: { "Content-Type": "application/json", Authorization: authHeader },
+                    body: JSON.stringify(newArea)
+                });
+                if (res.ok) { setNewArea({ pincode: "", areaName: "", zoneId: "" }); showToast("Area assigned to zone!", "success"); loadAdminData(authHeader); }
+            };
+
+            const saveRateCard = async (e) => {
+                e.preventDefault();
+                const res = await fetch("/api/rate-cards", {
+                    method: "POST", headers: { "Content-Type": "application/json", Authorization: authHeader },
+                    body: JSON.stringify(newRate)
+                });
+                if (res.ok) {
+                    setNewRate({ originZoneId: "", destinationZoneId: "", orderType: "B2C", baseRatePerKg: "", codSurcharge: "" });
+                    showToast("Rate card saved!", "success");
+                    loadAdminData(authHeader);
+                }
+            };
+
+            const logout = () => {
+                setAuthHeader(null); setUser(null); setOrders([]); setTrackingHistory([]); setQuote(null);
+                setNewOrder(emptyOrder); setOrderStep(1); setEmail(""); setPassword(""); setOtp(""); setOtpSent(false);
+            };
+
+            return (
+                <>
+                    <InteractiveBackground />
+                    <CustomCursor />
+
+                    {toast && (
+                        <div className={`fixed top-5 right-5 z-50 px-5 py-3 rounded-xl shadow-2xl border text-sm font-medium animate-float-in ${
+                            toast.type === "error" ? "bg-rose-950/90 border-rose-500/40 text-rose-200" : "bg-emerald-950/90 border-emerald-500/40 text-emerald-200"
+                        }`}>{toast.text}</div>
+                    )}
+
+                    {!user ? (
+                        <div className="min-h-screen flex items-center justify-center p-4">
+                            <TiltCard className="p-8 rounded-2xl shadow-2xl w-full max-w-md animate-float-in">
+                                <div className="text-center mb-7">
+                                    <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-400 via-blue-400 to-indigo-400">LastMileTracker</h1>
+                                    <p className="text-slate-400 text-sm mt-1.5">{isRegister ? "Create your Logistics Account" : "Sign in to your Logistics Portal"}</p>
+                                </div>
+                                <form onSubmit={handleAuth} autoComplete="off" className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Email Address</label>
+                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={isRegister && otpSent} placeholder="Enter your email"
+                                            className="w-full bg-slate-900/70 border border-slate-700/80 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-400 transition disabled:opacity-60" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Password</label>
+                                        <div className="relative">
+                                            <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password"
+                                                className="w-full bg-slate-900/70 border border-slate-700/80 rounded-xl px-4 py-3 pr-12 text-white focus:outline-none focus:border-sky-400 transition" required />
+                                            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-sky-400 font-semibold">
+                                                {showPassword ? "HIDE" : "SHOW"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {isRegister && otpSent && (
+                                        <div className="animate-float-in">
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-sky-400 mb-1.5">6-Digit Verification OTP</label>
+                                            <input type="text" maxLength="6" value={otp} onChange={e => setOtp(e.target.value)} placeholder="••••••"
+                                                className="w-full bg-slate-900/70 border border-sky-500/60 rounded-xl px-4 py-3 text-white text-center tracking-[0.4em] font-bold" required />
+                                        </div>
+                                    )}
+                                    <button type="submit" disabled={loading} className="w-full mt-2 bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white font-bold py-3 rounded-xl shadow-lg transition disabled:opacity-60">
+                                        {loading ? "Processing..." : isRegister ? (otpSent ? "Verify OTP & Create Account" : "Send Verification OTP") : "Sign In"}
+                                    </button>
+                                </form>
+                                <button onClick={() => { setIsRegister(!isRegister); setOtpSent(false); setOtp(""); setPassword(""); }} className="w-full mt-5 text-sm text-sky-400 hover:text-sky-300">
+                                    {isRegister ? "Already have an account? Sign In" : "New customer? Create an account"}
+                                </button>
+                            </TiltCard>
+                        </div>
+                    ) : (
+                        <div className="min-h-screen flex flex-col animate-float-in">
+                            <nav className="glass sticky top-0 z-20 px-6 py-4 flex justify-between items-center">
+                                <div className="font-extrabold text-xl text-sky-400 flex items-center gap-3">
+                                    <span>📦 LastMileTracker</span>
+                                    <span className="text-xs bg-indigo-500/30 text-indigo-200 px-2.5 py-0.5 rounded-full">{user.role}</span>
+                                    {user.role === "ADMIN" && (
+                                        <div className="flex gap-2 ml-4 text-xs">
+                                            <button onClick={() => setAdminTab("orders")} className={`px-3 py-1 rounded-lg ${adminTab === "orders" ? "bg-sky-500 text-white" : "bg-slate-800 text-slate-300"}`}>Orders</button>
+                                            <button onClick={() => setAdminTab("config")} className={`px-3 py-1 rounded-lg ${adminTab === "config" ? "bg-sky-500 text-white" : "bg-slate-800 text-slate-300"}`}>Zones & Rate Cards</button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <span className="text-sm text-slate-300 hidden sm:inline">{user.email}</span>
+                                    <button onClick={logout} className="bg-slate-800 hover:bg-slate-700 px-4 py-1.5 rounded-lg text-sm font-semibold">Sign Out</button>
+                                </div>
+                            </nav>
+
+                            <main className="max-w-7xl mx-auto w-full p-6 space-y-8">
+                                {/* ADMIN ZONE / AREA / RATE CARD MANAGEMENT */}
+                                {user.role === "ADMIN" && adminTab === "config" && (
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                        <section className="glass p-6 rounded-2xl space-y-4">
+                                            <h2 className="text-lg font-bold text-sky-300">Manage Zones</h2>
+                                            <form onSubmit={createZone} className="flex gap-2">
+                                                <input value={newZoneName} onChange={e => setNewZoneName(e.target.value)} placeholder="Zone Name (e.g. EAST_ZONE)" className="flex-1 bg-slate-900/70 border border-slate-700 rounded-xl px-3 py-2 text-sm" required />
+                                                <button className="bg-sky-500 hover:bg-sky-400 px-4 py-2 rounded-xl text-sm font-bold">Add</button>
+                                            </form>
+                                            <div className="space-y-1 text-sm text-slate-300">
+                                                {zones.map(z => <div key={z.id} className="bg-slate-900/60 px-3 py-2 rounded-lg flex justify-between"><span>{z.name}</span><span className="text-slate-500">ID #{z.id}</span></div>)}
+                                            </div>
+                                        </section>
+
+                                        <section className="glass p-6 rounded-2xl space-y-4">
+                                            <h2 className="text-lg font-bold text-indigo-300">Assign Area to Zone</h2>
+                                            <form onSubmit={createArea} className="space-y-2.5 text-sm">
+                                                <input value={newArea.pincode} onChange={e => setNewArea({...newArea, pincode: e.target.value})} placeholder="Pincode" className="w-full bg-slate-900/70 border border-slate-700 rounded-xl px-3 py-2" required />
+                                                <input value={newArea.areaName} onChange={e => setNewArea({...newArea, areaName: e.target.value})} placeholder="Area Name" className="w-full bg-slate-900/70 border border-slate-700 rounded-xl px-3 py-2" required />
+                                                <select value={newArea.zoneId} onChange={e => setNewArea({...newArea, zoneId: e.target.value})} className="w-full bg-slate-900/70 border border-slate-700 rounded-xl px-3 py-2" required>
+                                                    <option value="">Select Zone</option>
+                                                    {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                                                </select>
+                                                <button className="w-full bg-indigo-500 hover:bg-indigo-400 py-2 rounded-xl font-bold">Save Area</button>
+                                            </form>
+                                            <div className="max-h-40 overflow-y-auto space-y-1 text-xs">
+                                                {areas.map(a => <div key={a.id} className="bg-slate-900/60 px-3 py-1.5 rounded flex justify-between"><span>{a.pincode} — {a.areaName}</span><span className="text-sky-400">{a.zone?.name}</span></div>)}
+                                            </div>
+                                        </section>
+
+                                        <section className="glass p-6 rounded-2xl space-y-4">
+                                            <h2 className="text-lg font-bold text-emerald-300">Configure Rate Card</h2>
+                                            <form onSubmit={saveRateCard} className="space-y-2.5 text-sm">
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <select value={newRate.originZoneId} onChange={e => setNewRate({...newRate, originZoneId: e.target.value})} className="bg-slate-900/70 border border-slate-700 rounded-xl px-2 py-2" required>
+                                                        <option value="">Origin Zone</option>
+                                                        {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                                                    </select>
+                                                    <select value={newRate.destinationZoneId} onChange={e => setNewRate({...newRate, destinationZoneId: e.target.value})} className="bg-slate-900/70 border border-slate-700 rounded-xl px-2 py-2" required>
+                                                        <option value="">Drop Zone</option>
+                                                        {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <select value={newRate.orderType} onChange={e => setNewRate({...newRate, orderType: e.target.value})} className="bg-slate-900/70 border border-slate-700 rounded-xl px-2 py-2">
+                                                        <option value="B2C">B2C</option><option value="B2B">B2B</option>
+                                                    </select>
+                                                    <input type="number" step="0.5" value={newRate.baseRatePerKg} onChange={e => setNewRate({...newRate, baseRatePerKg: e.target.value})} placeholder="Base ₹/kg" className="bg-slate-900/70 border border-slate-700 rounded-xl px-2 py-2" required />
+                                                    <input type="number" step="0.5" value={newRate.codSurcharge} onChange={e => setNewRate({...newRate, codSurcharge: e.target.value})} placeholder="COD ₹" className="bg-slate-900/70 border border-slate-700 rounded-xl px-2 py-2" required />
+                                                </div>
+                                                <button className="w-full bg-emerald-600 hover:bg-emerald-500 py-2 rounded-xl font-bold">Save Rate Card</button>
+                                            </form>
+                                            <div className="max-h-40 overflow-y-auto space-y-1 text-xs">
+                                                {rateCards.map(r => (
+                                                    <div key={r.id} className="bg-slate-900/60 px-3 py-1.5 rounded flex justify-between">
+                                                        <span>{r.originZone?.name} → {r.destinationZone?.name} ({r.orderType})</span>
+                                                        <span className="text-emerald-400">₹{r.baseRatePerKg}/kg | COD ₹{r.codSurcharge}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    </div>
+                                )}
+
+                                {/* INTERACTIVE 3-STEP CREATE ORDER WIZARD */}
+                                {(user.role === "USER" || (user.role === "ADMIN" && adminTab === "orders")) && (
+                                    <TiltCard className="p-6 rounded-2xl">
+                                        <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+                                            <div>
+                                                <h2 className="text-xl font-bold text-indigo-300">
+                                                    {user.role === "ADMIN" ? "Create Order (On Behalf of Customer)" : "Create New Delivery Order"}
+                                                </h2>
+                                                <p className="text-xs text-slate-400 mt-0.5">Complete the 3 steps to get an instant shipping quote</p>
+                                            </div>
+                                            {/* Stepper Pills */}
+                                            <div className="flex items-center gap-2 text-xs font-semibold">
+                                                {[
+                                                    { id: 1, label: "1. Route" },
+                                                    { id: 2, label: "2. Package" },
+                                                    { id: 3, label: "3. Payment & Quote" }
+                                                ].map(s => (
+                                                    <button
+                                                        key={s.id}
+                                                        type="button"
+                                                        onClick={() => setOrderStep(s.id)}
+                                                        className={`px-3.5 py-1.5 rounded-full transition ${
+                                                            orderStep === s.id
+                                                                ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-lg shadow-sky-500/25"
+                                                                : "bg-slate-800/80 text-slate-400 hover:text-white"
+                                                        }`}
+                                                    >
+                                                        {s.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* STEP 1: ROUTE */}
+                                        {orderStep === 1 && (
+                                            <div className="space-y-4 animate-float-in">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl space-y-3">
+                                                        <p className="text-xs font-bold uppercase tracking-wider text-sky-400">📍 Pickup Details</p>
+                                                        <input value={newOrder.pickupAddress} onChange={e => { setNewOrder({...newOrder, pickupAddress: e.target.value}); setQuote(null); }} placeholder="Pickup Street Address" className="w-full bg-slate-950/70 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:border-sky-400 focus:outline-none" />
+                                                        <input value={newOrder.pickupPincode} onChange={e => { setNewOrder({...newOrder, pickupPincode: e.target.value}); setQuote(null); }} placeholder="Pickup Pincode (e.g. 110001)" className="w-full bg-slate-950/70 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:border-sky-400 focus:outline-none" />
+                                                    </div>
+                                                    <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl space-y-3">
+                                                        <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">🏁 Drop-off Details</p>
+                                                        <input value={newOrder.dropAddress} onChange={e => { setNewOrder({...newOrder, dropAddress: e.target.value}); setQuote(null); }} placeholder="Drop Street Address" className="w-full bg-slate-950/70 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:border-emerald-400 focus:outline-none" />
+                                                        <input value={newOrder.dropPincode} onChange={e => { setNewOrder({...newOrder, dropPincode: e.target.value}); setQuote(null); }} placeholder="Drop Pincode (e.g. 400001)" className="w-full bg-slate-950/70 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:border-emerald-400 focus:outline-none" />
+                                                    </div>
+                                                </div>
+                                                {user.role === "ADMIN" && (
+                                                    <input type="email" value={newOrder.customerEmail} onChange={e => setNewOrder({...newOrder, customerEmail: e.target.value})} placeholder="Customer Email (optional — defaults to your email)" className="w-full bg-slate-900/70 border border-slate-700 rounded-xl px-4 py-2.5 text-sm" />
+                                                )}
+                                                <div className="flex justify-end">
+                                                    <button type="button" onClick={() => {
+                                                        if (!newOrder.pickupAddress || !newOrder.pickupPincode || !newOrder.dropAddress || !newOrder.dropPincode) {
+                                                            return showToast("Please fill in pickup & drop addresses and pincodes.", "error");
+                                                        }
+                                                        setOrderStep(2);
+                                                    }} className="bg-sky-500 hover:bg-sky-400 px-6 py-2.5 rounded-xl font-bold text-sm transition">
+                                                        Next: Package Size →
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* STEP 2: PACKAGE DIMENSIONS & LIVE VOLUMETRIC METER */}
+                                        {orderStep === 2 && (
+                                            <div className="space-y-4 animate-float-in">
+                                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                                    <span className="text-slate-400">Quick Size Presets:</span>
+                                                    {[
+                                                        { name: "📦 Small (20×15×10 cm)", l: "20", b: "15", h: "10" },
+                                                        { name: "📦 Medium (35×25×20 cm)", l: "35", b: "25", h: "20" },
+                                                        { name: "📦 Large (50×40×30 cm)", l: "50", b: "40", h: "30" }
+                                                    ].map(p => (
+                                                        <button key={p.name} type="button" onClick={() => { setNewOrder({...newOrder, length: p.l, breadth: p.b, height: p.h}); setQuote(null); }}
+                                                            className="bg-slate-800 hover:bg-indigo-600/80 border border-slate-700 px-3 py-1.5 rounded-lg transition">
+                                                            {p.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                                    <input type="number" step="0.1" value={newOrder.length} onChange={e => { setNewOrder({...newOrder, length: e.target.value}); setQuote(null); }} placeholder="Length (cm)" className="bg-slate-900/70 border border-slate-700 rounded-xl px-3.5 py-2.5 focus:border-sky-400 focus:outline-none" />
+                                                    <input type="number" step="0.1" value={newOrder.breadth} onChange={e => { setNewOrder({...newOrder, breadth: e.target.value}); setQuote(null); }} placeholder="Breadth (cm)" className="bg-slate-900/70 border border-slate-700 rounded-xl px-3.5 py-2.5 focus:border-sky-400 focus:outline-none" />
+                                                    <input type="number" step="0.1" value={newOrder.height} onChange={e => { setNewOrder({...newOrder, height: e.target.value}); setQuote(null); }} placeholder="Height (cm)" className="bg-slate-900/70 border border-slate-700 rounded-xl px-3.5 py-2.5 focus:border-sky-400 focus:outline-none" />
+                                                    <input type="number" step="0.1" value={newOrder.actualWeight} onChange={e => { setNewOrder({...newOrder, actualWeight: e.target.value}); setQuote(null); }} placeholder="Actual Weight (kg)" className="bg-slate-900/70 border border-slate-700 rounded-xl px-3.5 py-2.5 focus:border-emerald-400 focus:outline-none" />
+                                                </div>
+
+                                                {liveBilledWeight && (
+                                                    <div className="bg-slate-900/70 border border-indigo-500/30 p-3.5 rounded-xl flex flex-wrap justify-between items-center text-xs gap-2 animate-float-in">
+                                                        <span>Volumetric (L×B×H÷5000): <strong className="text-sky-300">{liveVolWeight || "0.00"} kg</strong></span>
+                                                        <span>Actual Weight: <strong className="text-indigo-300">{liveActualWeight || "0.00"} kg</strong></span>
+                                                        <span className="bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full font-bold">Billed Weight: {liveBilledWeight} kg</span>
+                                                    </div>
+                                                )}
+
+                                                <div className="flex justify-between">
+                                                    <button type="button" onClick={() => setOrderStep(1)} className="bg-slate-800 hover:bg-slate-700 px-5 py-2.5 rounded-xl text-sm font-semibold">← Back</button>
+                                                    <button type="button" onClick={() => {
+                                                        if (!newOrder.length || !newOrder.breadth || !newOrder.height || !newOrder.actualWeight) {
+                                                            return showToast("Enter package dimensions and actual weight.", "error");
+                                                        }
+                                                        setOrderStep(3);
+                                                    }} className="bg-sky-500 hover:bg-sky-400 px-6 py-2.5 rounded-xl font-bold text-sm transition">
+                                                        Next: Payment & Quote →
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* STEP 3: SERVICE TYPE, PAYMENT & LIVE QUOTE */}
+                                        {orderStep === 3 && (
+                                            <div className="space-y-4 animate-float-in">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Order Type</p>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            {["B2C", "B2B"].map(type => (
+                                                                <button key={type} type="button" onClick={() => { setNewOrder({...newOrder, orderType: type}); setQuote(null); }}
+                                                                    className={`p-3 rounded-xl border text-left transition ${newOrder.orderType === type ? "bg-indigo-500/20 border-indigo-400 text-white" : "bg-slate-900/60 border-slate-800 text-slate-400"}`}>
+                                                                    <div className="font-bold text-sm">{type}</div>
+                                                                    <div className="text-[11px] opacity-75">{type === "B2C" ? "Standard Retail" : "Bulk Business Rate"}</div>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Payment Mode</p>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            {["PREPAID", "COD"].map(pay => (
+                                                                <button key={pay} type="button" onClick={() => { setNewOrder({...newOrder, paymentType: pay}); setQuote(null); }}
+                                                                    className={`p-3 rounded-xl border text-left transition ${newOrder.paymentType === pay ? "bg-emerald-500/20 border-emerald-400 text-white" : "bg-slate-900/60 border-slate-800 text-slate-400"}`}>
+                                                                    <div className="font-bold text-sm">{pay}</div>
+                                                                    <div className="text-[11px] opacity-75">{pay === "PREPAID" ? "No extra surcharge" : "Includes COD surcharge"}</div>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {!quote ? (
+                                                    <div className="flex justify-between pt-2">
+                                                        <button type="button" onClick={() => setOrderStep(2)} className="bg-slate-800 hover:bg-slate-700 px-5 py-2.5 rounded-xl text-sm font-semibold">← Back</button>
+                                                        <button type="button" onClick={previewCharge} className="bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 px-7 py-2.5 rounded-xl font-bold text-sm shadow-lg">
+                                                            Calculate & Preview Charge
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="p-4 rounded-xl bg-slate-900/85 border border-emerald-500/40 flex flex-col md:flex-row justify-between items-center gap-4 animate-float-in">
+                                                        <div className="text-sm space-y-1">
+                                                            <p className="text-sky-300 font-bold">Route: {quote.pickupZoneName} → {quote.dropZoneName}</p>
+                                                            <p className="text-slate-300">Volumetric: <strong>{quote.volumetricWeight} kg</strong> | Billed: <strong>{quote.chargeableWeight} kg</strong></p>
+                                                            <p className="text-slate-300">Base: ₹{quote.baseCharge} + COD: ₹{quote.codSurcharge} = <strong className="text-emerald-400 text-lg">₹{quote.totalCharge}</strong></p>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <button type="button" onClick={() => setQuote(null)} className="bg-slate-800 hover:bg-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold">Edit</button>
+                                                            <button type="button" onClick={confirmOrder} className="bg-emerald-600 hover:bg-emerald-500 px-6 py-2.5 rounded-xl font-bold text-white shadow-lg">
+                                                                Confirm & Place Order
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </TiltCard>
+                                )}
+
+                                {/* TRACKING TIMELINE */}
+                                {(user.role !== "ADMIN" || adminTab === "orders") && (
+                                    <section className="glass p-6 rounded-2xl">
+                                        <h2 className="text-xl font-bold mb-4 text-sky-300">Live Order Tracking Timeline</h2>
+                                        <div className="flex gap-3">
+                                            <input type="number" value={trackId} onChange={e => setTrackId(e.target.value)} placeholder="Enter Order ID" className="flex-1 bg-slate-900/70 border border-slate-700 rounded-xl px-4 py-2 text-white" />
+                                            <button onClick={() => trackOrder(trackId)} className="bg-sky-500 hover:bg-sky-400 px-6 py-2 rounded-xl font-bold">Track</button>
+                                        </div>
+                                        {trackingHistory.length > 0 && (
+                                            <div className="mt-4 space-y-2 border-l-2 border-sky-500/50 pl-4">
+                                                {trackingHistory.map(t => (
+                                                    <div key={t.id} className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between text-sm">
+                                                        <span><strong className="text-sky-400">{t.status}</strong> — {t.remarks} <span className="text-slate-500 text-xs">(by {t.updatedBy})</span></span>
+                                                        <span className="text-slate-400 text-xs">{new Date(t.timestamp).toLocaleString()}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </section>
+                                )}
+
+                                {/* ORDERS LIST + FILTERS + ACTIONS */}
+                                {(user.role !== "ADMIN" || adminTab === "orders") && (
+                                    <section className="glass p-6 rounded-2xl space-y-4">
+                                        <div className="flex flex-wrap justify-between items-center gap-3">
+                                            <h2 className="text-xl font-bold text-emerald-300">
+                                                {user.role === "AGENT" ? "My Assigned Deliveries" : user.role === "ADMIN" ? "All Network Orders" : "My Orders"} ({orders.length})
+                                            </h2>
+                                            {user.role === "ADMIN" && (
+                                                <div className="flex flex-wrap gap-2 text-xs">
+                                                    <select value={filters.status} onChange={e => { const f = {...filters, status: e.target.value}; setFilters(f); loadOrders(authHeader, user.role, f); }} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5">
+                                                        <option value="">All Statuses</option>
+                                                        {ALL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                                    </select>
+                                                    <select value={filters.zoneId} onChange={e => { const f = {...filters, zoneId: e.target.value}; setFilters(f); loadOrders(authHeader, user.role, f); }} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5">
+                                                        <option value="">All Zones</option>
+                                                        {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                                                    </select>
+                                                    <select value={filters.agentId} onChange={e => { const f = {...filters, agentId: e.target.value}; setFilters(f); loadOrders(authHeader, user.role, f); }} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5">
+                                                        <option value="">All Agents</option>
+                                                        {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                                    </select>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {orders.length === 0 ? (
+                                            <p className="text-sm text-slate-400 italic py-4">No orders found yet.</p>
+                                        ) : (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                {orders.map(o => (
+                                                    <div key={o.id} className="bg-slate-900/75 border border-slate-800 hover:border-sky-500/40 p-4 rounded-xl space-y-2.5 text-sm transition">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="font-bold text-base">Order #{o.id}</span>
+                                                            <span className="text-xs px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-semibold">{o.status}</span>
+                                                        </div>
+                                                        <p className="text-xs text-slate-400">{o.pickupAddress} ({o.pickupPincode}) → {o.dropAddress} ({o.dropPincode})</p>
+                                                        <p className="text-xs text-slate-300">Type: {o.orderType} | {o.paymentType} | Billed: {o.chargeableWeight}kg | <strong className="text-emerald-400">₹{o.totalCharge}</strong></p>
+                                                        <p className="text-xs text-slate-400">Agent: <span className="text-indigo-300">{o.assignedAgent ? o.assignedAgent.name : "Unassigned"}</span></p>
+                                                        <button onClick={() => trackOrder(o.id)} className="text-xs text-sky-400 hover:underline">View Tracking Timeline →</button>
+
+                                                        {o.status === "FAILED" && (
+                                                            <div className="pt-2 border-t border-slate-800 space-y-2">
+                                                                <p className="text-xs text-rose-300 font-semibold">Delivery Failed — Reschedule:</p>
+                                                                <input type="datetime-local" value={rescheduleDates[o.id] || ""} onChange={e => setRescheduleDates({...rescheduleDates, [o.id]: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs" />
+                                                                <button onClick={() => rescheduleOrder(o.id)} className="w-full bg-amber-600 hover:bg-amber-500 py-1.5 rounded-lg text-xs font-bold">Reschedule & Reassign</button>
+                                                            </div>
+                                                        )}
+
+                                                        {user.role === "AGENT" && o.status !== "DELIVERED" && (
+                                                            <div className="pt-2 border-t border-slate-800 space-y-2">
+                                                                <input value={statusRemarks[o.id] || ""} onChange={e => setStatusRemarks({...statusRemarks, [o.id]: e.target.value})} placeholder="Remarks (optional)" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs" />
+                                                                <div className="flex flex-wrap gap-1.5">
+                                                                    {AGENT_STATUSES.map(st => (
+                                                                        <button key={st} onClick={() => updateStatus(o.id, st)} className="bg-slate-800 hover:bg-sky-600 px-2 py-1 rounded text-[11px] font-semibold transition">{st.replaceAll("_", " ")}</button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {user.role === "ADMIN" && (
+                                                            <div className="pt-2 border-t border-slate-800 space-y-2">
+                                                                <div className="flex gap-1.5">
+                                                                    <select onChange={e => assignAgent(o.id, e.target.value)} defaultValue="" className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs">
+                                                                        <option value="" disabled>Manual Assign...</option>
+                                                                        {agents.map(a => <option key={a.id} value={a.id}>{a.name} ({a.isAvailable ? "Free" : "Busy"})</option>)}
+                                                                    </select>
+                                                                    <button onClick={() => autoAssign(o.id)} className="bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1 rounded-lg text-xs font-bold">Auto</button>
+                                                                </div>
+                                                                <select onChange={e => updateStatus(o.id, e.target.value)} value={o.status} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs">
+                                                                    {ALL_STATUSES.map(st => <option key={st} value={st}>Override: {st}</option>)}
+                                                                </select>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </section>
+                                )}
+                            </main>
+                        </div>
+                    )}
+                </>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+</body>
+</html>
