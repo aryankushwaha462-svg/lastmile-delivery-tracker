@@ -51,6 +51,9 @@ public class Order {
     private LocalDateTime createdAt;
     private LocalDateTime rescheduledDate;
 
+    private String deliveryOtp;
+    private LocalDateTime deliveryOtpExpiresAt;
+
     public Order() {}
 
     public Long getId() { return id; }
@@ -101,6 +104,10 @@ public class Order {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getRescheduledDate() { return rescheduledDate; }
     public void setRescheduledDate(LocalDateTime rescheduledDate) { this.rescheduledDate = rescheduledDate; }
+    public String getDeliveryOtp() { return deliveryOtp; }
+    public void setDeliveryOtp(String deliveryOtp) { this.deliveryOtp = deliveryOtp; }
+    public LocalDateTime getDeliveryOtpExpiresAt() { return deliveryOtpExpiresAt; }
+    public void setDeliveryOtpExpiresAt(LocalDateTime deliveryOtpExpiresAt) { this.deliveryOtpExpiresAt = deliveryOtpExpiresAt; }
 
     public static OrderBuilder builder() { return new OrderBuilder(); }
 

@@ -38,12 +38,30 @@ public class NotificationService {
     }
 
     @Async
+    public void sendDeliveryOtpEmail(Order order, String otp) {
+        if (order == null || order.getCustomerEmail() == null || order.getCustomerEmail().isBlank()) {
+            return;
+        }
+        String ref = (order.getOrderNumber() != null && !order.getOrderNumber().isBlank())
+                ? order.getOrderNumber()
+                : String.valueOf(order.getId());
+        String subject = "Delivery OTP for Order #" + ref;
+        String text = "Dear Customer,\n\nYour delivery agent is at your location for Order #" + ref +
+                ".\nShare this 6-digit OTP to confirm delivery: " + otp +
+                "\n\nThis code expires in 15 minutes.";
+        sendViaBrevoApi(order.getCustomerEmail(), subject, text);
+    }
+
+    @Async
     public void sendStatusNotification(Order order, OrderStatus status) {
         if (order == null || order.getCustomerEmail() == null || order.getCustomerEmail().isBlank()) {
             return;
         }
-        String subject = "Order #" + order.getId() + " Status Update: " + status.name();
-        String text = "Dear Customer,\n\nYour order #" + order.getId() + " is now: " + status.name() +
+        String ref = (order.getOrderNumber() != null && !order.getOrderNumber().isBlank())
+                ? order.getOrderNumber()
+                : String.valueOf(order.getId());
+        String subject = "Order #" + ref + " Status Update: " + status.name();
+        String text = "Dear Customer,\n\nYour order #" + ref + " is now: " + status.name() +
                 ".\nTrack your order status live on our portal.\n\nThank you!";
         sendViaBrevoApi(order.getCustomerEmail(), subject, text);
     }
