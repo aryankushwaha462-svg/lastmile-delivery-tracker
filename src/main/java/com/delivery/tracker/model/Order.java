@@ -10,6 +10,9 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(unique = true, length = 6)
+    private String orderNumber;
+
     private String pickupAddress;
     private String pickupPincode;
     private String dropAddress;
@@ -52,6 +55,8 @@ public class Order {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public String getOrderNumber() { return orderNumber; }
+    public void setOrderNumber(String orderNumber) { this.orderNumber = orderNumber; }
     public String getPickupAddress() { return pickupAddress; }
     public void setPickupAddress(String pickupAddress) { this.pickupAddress = pickupAddress; }
     public String getPickupPincode() { return pickupPincode; }
@@ -101,6 +106,7 @@ public class Order {
 
     public static class OrderBuilder {
         private final Order o = new Order();
+        public OrderBuilder orderNumber(String v) { o.orderNumber = v; return this; }
         public OrderBuilder pickupAddress(String v) { o.pickupAddress = v; return this; }
         public OrderBuilder pickupPincode(String v) { o.pickupPincode = v; return this; }
         public OrderBuilder dropAddress(String v) { o.dropAddress = v; return this; }

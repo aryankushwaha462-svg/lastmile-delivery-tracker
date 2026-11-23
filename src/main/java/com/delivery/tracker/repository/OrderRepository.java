@@ -7,10 +7,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByCustomerEmailIgnoreCase(String email);
     List<Order> findByAssignedAgentEmailIgnoreCase(String email);
+    List<Order> findByAssignedAgentId(Long agentId);
+
+    boolean existsByOrderNumber(String orderNumber);
+    Optional<Order> findByOrderNumber(String orderNumber);
 
     @Query("SELECT o FROM Order o WHERE " +
            "(:status IS NULL OR o.status = :status) AND " +
