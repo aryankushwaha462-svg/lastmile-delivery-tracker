@@ -49,6 +49,8 @@ public class AgentProfileController {
                 .mapToDouble(o -> o.getTotalCharge() != null ? o.getTotalCharge() : 0.0)
                 .sum();
 
+        boolean available = Boolean.TRUE.equals(agent.getIsAvailable());
+
         Map<String, Object> response = new HashMap<>();
         response.put("id", agent.getId());
         response.put("name", agent.getName());
@@ -56,9 +58,9 @@ public class AgentProfileController {
         response.put("phone", agent.getPhone() != null ? agent.getPhone() : "");
         response.put("vehicleType", agent.getVehicleType() != null ? agent.getVehicleType() : "BIKE");
         response.put("vehicleNumber", agent.getVehicleNumber() != null ? agent.getVehicleNumber() : "");
-        response.put("isAvailable", agent.isAvailable());
+        response.put("isAvailable", available);
         response.put("maxCapacity", agent.getMaxCapacity() != null ? agent.getMaxCapacity() : 5);
-        response.put("zoneName", agent.getZone() != null ? agent.getZone().getName() : "Unassigned");
+        response.put("zoneName", agent.getCurrentZone() != null ? agent.getCurrentZone().getName() : "Unassigned");
         response.put("stats", Map.of(
                 "delivered", delivered,
                 "failed", failed,
@@ -77,11 +79,12 @@ public class AgentProfileController {
             return ResponseEntity.status(404).body("Agent profile not found.");
         }
 
-        boolean newStatus = body.getOrDefault("isAvailable", !agent.isAvailable());
-        agent.setAvailable(newStatus);
+        boolean current = Boolean.TRUE.equals(agent.getIsAvailable());
+        boolean newStatus = body.getOrDefault("isAvailable", !current);
+        agent.setIsAvailable(newStatus);
         agentRepository.save(agent);
 
-        return ResponseEntity.ok(Map.of("isAvailable", agent.isAvailable()));
+        return ResponseEntity.ok(Map.of("isAvailable", Boolean.TRUE.equals(agent.getIsAvailable())));
     }
 
     @PatchMapping("/profile")
