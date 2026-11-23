@@ -172,6 +172,7 @@
 
             const [authHeader, setAuthHeader] = useState(null);
             const [user, setUser] = useState(null);
+            const [authChecking, setAuthChecking] = useState(true);
             const [isRegister, setIsRegister] = useState(false);
             const [email, setEmail] = useState("");
             const [password, setPassword] = useState("");
@@ -222,6 +223,25 @@
             const [agentProfile, setAgentProfile] = useState(null);
             const [editingProfile, setEditingProfile] = useState(false);
             const [profileForm, setProfileForm] = useState({ name: "", phone: "", vehicleType: "BIKE", vehicleNumber: "" });
+
+            useEffect(() => {
+                const savedHeader = localStorage.getItem("lmt_auth");
+                if (!savedHeader) {
+                    setAuthChecking(false);
+                    return;
+                }
+                fetch("/api/auth/me", { headers: { Authorization: savedHeader } })
+                    .then(res => (res.ok ? res.json() : Promise.reject()))
+                    .then(data => {
+                        setAuthHeader(savedHeader);
+                        setUser(data);
+                        loadOrders(savedHeader, data.role, filters);
+                        if (data.role === "ADMIN") loadAdminData(savedHeader);
+                        if (data.role === "AGENT") loadAgentProfile(savedHeader);
+                    })
+                    .catch(() => localStorage.removeItem("lmt_auth"))
+                    .finally(() => setAuthChecking(false));
+            }, []);
 
             useEffect(() => {
                 if (resendCooldown <= 0) return;
@@ -357,6 +377,7 @@
                     if (res.ok) {
                         const data = await res.json();
                         setAuthHeader(header); setUser(data);
+                        localStorage.setItem("lmt_auth", header);
                         showToast(`Welcome, ${data.email}`, "success");
                         loadOrders(header, data.role, filters);
                         if (data.role === "ADMIN") loadAdminData(header);
@@ -619,12 +640,21 @@
             };
 
             const logout = () => {
+                localStorage.removeItem("lmt_auth");
                 setAuthHeader(null); setUser(null); setOrders([]); setTrackingHistory([]); setQuote(null);
                 setNewOrder(emptyOrder); setOrderStep(1); setEmail(""); setPassword(""); setOtp(""); setOtpSent(false); setResendCooldown(0);
                 setAgentProfile(null); setEditingProfile(false);
                 setDeliveryOtpOrderId(null); setDeliveryOtpInput("");
                 resetForgotState();
             };
+
+            if (authChecking) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center text-sky-400 text-sm font-semibold">
+                        Restoring session...
+                    </div>
+                );
+            }
 
             return (
                 <>
