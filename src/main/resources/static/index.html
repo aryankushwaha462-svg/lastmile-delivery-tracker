@@ -648,6 +648,10 @@
                 resetForgotState();
             };
 
+            const visibleOrders = user?.role === "AGENT"
+                ? orders.filter(o => o.status !== "DELIVERED")
+                : orders;
+
             if (authChecking) {
                 return (
                     <div className="min-h-screen flex items-center justify-center text-sky-400 text-sm font-semibold">
@@ -1197,7 +1201,7 @@
                                     <section className="glass p-4 sm:p-6 rounded-2xl space-y-4">
                                         <div className="flex flex-wrap justify-between items-center gap-3">
                                             <h2 className="text-lg sm:text-xl font-bold text-emerald-300">
-                                                {user.role === "AGENT" ? "My Assigned Deliveries" : user.role === "ADMIN" ? "All Network Orders" : "My Orders"} ({orders.length})
+                                                {user.role === "AGENT" ? "My Assigned Deliveries" : user.role === "ADMIN" ? "All Network Orders" : "My Orders"} ({visibleOrders.length})
                                             </h2>
                                             {user.role === "ADMIN" && (
                                                 <div className="flex flex-wrap gap-2 text-xs w-full sm:w-auto">
@@ -1217,11 +1221,13 @@
                                             )}
                                         </div>
 
-                                        {orders.length === 0 ? (
-                                            <p className="text-sm text-slate-400 italic py-4">No orders found yet.</p>
+                                        {visibleOrders.length === 0 ? (
+                                            <p className="text-sm text-slate-400 italic py-4">
+                                                {user.role === "AGENT" ? "No active deliveries pending." : "No orders found yet."}
+                                            </p>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {orders.map(o => (
+                                                {visibleOrders.map(o => (
                                                     <div key={o.id} className="bg-slate-900/75 border border-slate-800 hover:border-sky-500/40 p-4 rounded-xl space-y-2.5 text-sm transition">
                                                         <div className="flex justify-between items-center gap-2">
                                                             <span className="font-bold text-base">Order #{o.orderNumber || o.id}</span>
